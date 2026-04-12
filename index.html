@@ -1687,15 +1687,21 @@ Consultorio de Psicolog\u00eda Dra. Fanny Ariza Córdoba`;
 //  CONFIGURACIÓN FIREBASE — edita solo este bloque
 //  Los 3 archivos deben tener los mismos valores
 // ════════════════════════════════════════════════
-var FIREBASE_CONFIG = {
-  apiKey:            "TU_API_KEY",
-  authDomain:        "TU_PROYECTO.firebaseapp.com",
-  databaseURL:       "https://TU_PROYECTO-default-rtdb.firebaseio.com",
-  projectId:         "TU_PROYECTO",
-  storageBucket:     "TU_PROYECTO.appspot.com",
-  messagingSenderId: "TU_SENDER_ID",
-  appId:             "TU_APP_ID"
+const firebaseConfig = {
+  apiKey: "AIzaSyBFFFn2lUe1g__QzqE4atrwpNrG27J5VqI",
+  authDomain: "clinica-psicologica-b18a6.firebaseapp.com",
+  databaseURL: "https://clinica-psicologica-b18a6-default-rtdb.firebaseio.com",
+  projectId: "clinica-psicologica-b18a6",
+  storageBucket: "clinica-psicologica-b18a6.firebasestorage.app",
+  messagingSenderId: "518880019698",
+  appId: "1:518880019698:web:c556aaa711247e4d61fc6b"
 };
+
+
+
+
+
+
 // ════════════════════════════════════════════════
 
 var fbApp = null;
@@ -1766,76 +1772,70 @@ function fbIniciar(config) {
 </script>
 
 
+<!-- Carga pacientes desde sala de espera — usa firebase compat ya cargado -->
 <script>
-// Obtiene referencia a "pacientes/" usando fbApp ya conectado
-function agObtenerRef() {
-  if (window._agDbRef) return true;
+// Lee pacientes del nodo "pacientes/" usando la misma instancia fbApp
+function agIniciarLectura() {
+  if (!fbApp) { window._agFbReady = false; return; }
   try {
-    if (!window.fbApp) return false;
-    window._agDbRef = firebase.database(window.fbApp).ref('pacientes');
-    return true;
-  } catch(e) { return false; }
+    var db = firebase.database(fbApp);
+    window._agDbRef = db.ref('pacientes');
+    window._agFbReady = true;
+  } catch(e) { window._agFbReady = false; }
 }
+// Se llama desde fbIniciar() una vez que Firebase compat esté listo
+document.addEventListener('agendaFbListo', agIniciarLectura);
+</script>
 
-// Espera hasta 10s a que Firebase este listo, luego busca
-function agEsperarYBuscar(ced, btn) {
-  var intentos = 0;
-  btn.textContent = 'Conectando...';
+<script>
+// ── Cargar datos del paciente desde sala de espera ──
+window.agCargarPaciente = async function() {
+  var ced = (document.getElementById('cedPaciente').value || '').trim();
+  if (!ced) { alert('Ingresa el número de documento del paciente.'); return; }
+
+  // Inicializar referencia si aún no está lista
+  if (!window._agFbReady) agIniciarLectura();
+  if (!window._agFbReady) {
+    agBanner('error', '⚠ Firebase no está listo aún. Espera un momento e intenta de nuevo.');
+    return;
+  }
+
+  var btn = document.getElementById('agBtnCargar');
+  btn.textContent = '...';
   btn.disabled = true;
-  var t = setInterval(function() {
-    intentos++;
-    if (agObtenerRef()) {
-      clearInterval(t);
-      agBuscarPaciente(ced, btn);
-    } else if (intentos >= 20) {
-      clearInterval(t);
-      btn.innerHTML = '&#128269; Cargar';
-      btn.disabled = false;
-      agBanner('error', 'No se pudo conectar. Verifica el firebaseConfig.');
-    }
-  }, 500);
-}
 
-async function agBuscarPaciente(ced, btn) {
-  btn.textContent = 'Buscando...';
   try {
     var snap = await window._agDbRef.child(ced).once('value');
     btn.innerHTML = '&#128269; Cargar';
     btn.disabled = false;
+
     if (snap.exists()) {
       var d = snap.val();
-      var ape  = [d.primer_apellido, d.segundo_apellido].filter(Boolean).join(' ');
-      var nom  = [d.primer_nombre,   d.segundo_nombre  ].filter(Boolean).join(' ');
-      var full = (ape && nom) ? ape + ', ' + nom : (ape || nom || '');
-      if (full) document.getElementById('nombrePaciente').value = full;
-      if (d.telefono) {
-        document.getElementById('whatsappPaciente').value =
-          String(d.telefono).replace(/[^0-9]/g,'').replace(/^57/,'');
-      }
-      agBanner('ok', '✅ ' + full +
+      // Construir nombre completo: Apellido, Nombre
+      var nombre = [d.primer_apellido, d.segundo_apellido].filter(Boolean).join(' ');
+      var primerNombre = [d.primer_nombre, d.segundo_nombre].filter(Boolean).join(' ');
+      if (nombre && primerNombre) nombre = nombre + ', ' + primerNombre;
+      else nombre = primerNombre || nombre || '';
+
+      if (nombre) document.getElementById('nombrePaciente').value = nombre;
+      if (d.telefono) document.getElementById('whatsappPaciente').value =
+        d.telefono.replace(/\D/g,'').replace(/^57/, '');
+
+      agBanner('ok',
+        '✅ Datos cargados: ' + nombre +
         (d.eps ? ' · EPS: ' + d.eps : '') +
-        (d.estado_civil ? ' · ' + d.estado_civil : '') +
-        ' · ' + (d.ultima_actualizacion || ''));
+        ' · Últ. act: ' + (d.ultima_actualizacion || 'N/D'));
+
+      // Enfocar hora inicio
       document.getElementById('horaInicio').focus();
     } else {
-      agBanner('nuevo', 'Paciente nuevo — no encontrado en sala de espera.');
+      agBanner('nuevo', '🆕 Paciente no encontrado en sala de espera. Complete manualmente.');
     }
   } catch(err) {
     btn.innerHTML = '&#128269; Cargar';
     btn.disabled = false;
-    agBanner('error', 'Error al buscar. Revisa conexion Firebase.');
+    agBanner('error', '⚠ Error de conexión con Firebase.');
     console.error(err);
-  }
-}
-
-window.agCargarPaciente = function() {
-  var ced = (document.getElementById('cedPaciente').value || '').trim();
-  if (!ced) { alert('Ingresa el numero de documento del paciente.'); return; }
-  var btn = document.getElementById('agBtnCargar');
-  if (agObtenerRef()) {
-    agBuscarPaciente(ced, btn);
-  } else {
-    agEsperarYBuscar(ced, btn);
   }
 };
 
@@ -1844,14 +1844,14 @@ function agBanner(tipo, msg) {
   if (!b) return;
   b.textContent = msg;
   b.style.display = 'block';
-  var e = {
-    ok:    ['#e8faf0','1.5px solid #5dd49a','#0a5c30'],
-    nuevo: ['#fef9e7','1.5px solid #f5c842','#7a5000'],
-    error: ['#fdf0f0','1.5px solid #f5a0a0','#8b1a1a']
-  }[tipo] || ['#f0f0f0','1px solid #ccc','#333'];
-  b.style.background = e[0];
-  b.style.border     = e[1];
-  b.style.color      = e[2];
+  var estilos = {
+    ok:    ['#e8faf0', '1.5px solid #5dd49a', '#0a5c30'],
+    nuevo: ['#fef9e7', '1.5px solid #f5c842', '#7a5000'],
+    error: ['#fdf0f0', '1.5px solid #f5a0a0', '#8b1a1a']
+  }[tipo];
+  b.style.background = estilos[0];
+  b.style.border     = estilos[1];
+  b.style.color      = estilos[2];
   clearTimeout(b._t);
   b._t = setTimeout(function(){ b.style.display = 'none'; }, 9000);
 }
